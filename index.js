@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
+const jwt = require("jsonwebtoken");
 const port = process.env.PORT || 5000;
 
 const app = express();
@@ -19,6 +20,26 @@ const client = new MongoClient(uri, {
   },
 });
 
+//middleware function for verifying token
+function verifyJWT(req, res, next) {
+  const authorization = req.headers.authorization;
+  console.log(authorization);
+  if (!authorization) {
+    return res.status(401).send({ error: "Unauthorized access!" });
+  }
+  // step -2 . Verify if the provided token is valid or not.
+  // ["bearer", "dfdsfsdfr493fe"]
+  const token = authorization.split(" ")[1];
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+    console.log({ err });
+    if (err) {
+      return res.status(403).send({ error: "Unauthorized access!" });
+    }
+    // console.log({decoded});
+    req.decoded = decoded;
+    next();
+  });
+}
 async function run() {
   try {
     const techCollection = client.db("hero-tech").collection("technologies");
@@ -31,6 +52,14 @@ async function run() {
     });
 
     // Users management
+    app.post("/jwt", async (req, res) => {
+      const body = req.body;
+      const token = jwt.sign(body, process.env.ACCESS_TOKEN_SECRET, {
+        expiresIn: "1h",
+      });
+      res.send({ token });
+    });
+
     app.post("/users", async (req, res) => {
       const user = req.body;
       const query = { email: user.email };
@@ -61,7 +90,7 @@ async function run() {
     });
     // Cart management
     // Add a product to cart
-    app.post("/add-to-cart", async (req, res) => {
+    app.post("/add-to-cart",verifyJWT, async (req, res) => {
       if (!req.body.purchasedBy) {
         return res
           .status(403)
@@ -72,12 +101,15 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/my-cart", async (req, res) => {
+    app.get("/my-cart", verifyJWT, async (req, res) => {
       const myEmail = req.query.email;
       if (!myEmail) {
         return res
           .status(403)
           .send({ error: "no info of the customer found!" });
+      }
+      if (req.decoded.email !== myEmail) {
+        return res.status(403).send({ error: "Unauthorized access!" });
       }
       const queryFilter = { purchasedBy: myEmail };
       // const myCart = await cartCollection.find({purchasedBy:myEmail}).toArray();
@@ -123,6 +155,15 @@ async function run() {
   }
 }
 run().catch(console.dir);
+
+app.post("/generate-jwt", async (req, res) => {
+  const body = req.body;
+  console.log({ body });
+  const token = jwt.sign(body, process.env.ACCESS_TOKEN_SECRET, {
+    expiresIn: "1h",
+  });
+  res.send({ token });
+});
 
 app.get("/", (req, res) => {
   res.send({ message: "server says hi!" });
